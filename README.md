@@ -26,8 +26,12 @@ Après l'installation, lancer cette commande depuis le dossier du projet :
 python -m chrysalide inspect chemin\vers\notebook.ipynb
 ```
 
-Cette première commande résume les types de cellules et signale les sorties
-enregistrées. Elle ne lance pas le code du notebook et ne modifie pas le fichier.
+Cette commande résume les types de cellules, les modules importés et les
+références à des fichiers détectables dans le code, en plus des sorties
+enregistrées. Les chemins construits à partir de variables sont présentés comme
+des expressions de code, sans tenter de les résoudre. Les cellules qui utilisent
+une syntaxe non Python standard sont signalées lorsqu'elles ne peuvent pas être
+analysées. La commande ne lance pas le code du notebook et ne modifie pas le fichier.
 
 ## Développement
 

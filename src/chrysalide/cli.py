@@ -10,18 +10,33 @@ from chrysalide.notebook import NotebookFormatError, NotebookSummary, inspect_no
 
 
 def _format_summary(summary: NotebookSummary) -> str:
-    return "\n".join(
+    lines = [
+        f"Notebook : {summary.path}",
+        f"Cellules : {summary.total_cells}",
         (
-            f"Notebook : {summary.path}",
-            f"Cellules : {summary.total_cells}",
-            (
-                f"  Code : {summary.code_cells} | "
-                f"Markdown : {summary.markdown_cells} | Brut : {summary.raw_cells}"
-            ),
-            f"Cellules de code avec des sorties enregistrées : {summary.code_cells_with_outputs}",
-            "Le notebook a été lu sans exécuter ni modifier ses cellules.",
+            f"  Code : {summary.code_cells} | "
+            f"Markdown : {summary.markdown_cells} | Brut : {summary.raw_cells}"
+        ),
+        f"Cellules de code avec des sorties enregistrées : {summary.code_cells_with_outputs}",
+        f"Modules importés : {', '.join(summary.imported_modules) or 'aucun détecté'}",
+        "Fichiers référencés :",
+    ]
+    if summary.file_references:
+        lines.extend(
+            f"  - {reference.operation} : {reference.expression} "
+            f"(cellule {reference.cell_number})"
+            for reference in summary.file_references
         )
-    )
+    else:
+        lines.append("  Aucun fichier détecté.")
+
+    if summary.unanalyzed_code_cells:
+        lines.append(
+            "Cellules de code non analysées "
+            f"(syntaxe non Python standard) : {summary.unanalyzed_code_cells}"
+        )
+    lines.append("Le notebook a été lu sans exécuter ni modifier ses cellules.")
+    return "\n".join(lines)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

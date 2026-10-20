@@ -2,14 +2,60 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
+_READ_FUNCTIONS = {
+    "read_csv",
+    "read_excel",
+    "read_feather",
+    "read_hdf",
+    "read_json",
+    "read_parquet",
+    "read_pickle",
+    "read_table",
+    "read_text",
+    "read_bytes",
+    "loadtxt",
+    "genfromtxt",
+}
+_WRITE_FUNCTIONS = {
+    "to_csv",
+    "to_excel",
+    "to_feather",
+    "to_hdf",
+    "to_json",
+    "to_parquet",
+    "to_pickle",
+    "write_text",
+    "write_bytes",
+}
+_CHECK_FUNCTIONS = {"is_file", "is_dir"}
+_PATH_ARGUMENT_NAMES = {
+    "file",
+    "filename",
+    "filepath",
+    "filepath_or_buffer",
+    "path",
+    "path_or_buf",
+}
+
+
 class NotebookFormatError(ValueError):
     """Raised when a file is not a supported Jupyter notebook."""
+
+
+@dataclass(frozen=True)
+class NotebookFileReference:
+    """A statically detected file access in a notebook code cell."""
+
+    expression: str
+    operation: str
+    cell_number: int
 
 
 @dataclass(frozen=True)
@@ -22,6 +68,76 @@ class NotebookSummary:
     markdown_cells: int
     raw_cells: int
     code_cells_with_outputs: int
+    imported_modules: tuple[str, ...]
+    file_references: tuple[NotebookFileReference, ...]
+    unanalyzed_code_cells: int
+
+
+def _called_function_name(call: ast.Call) -> str | None:
+    if isinstance(call.func, ast.Name):
+        return call.func.id
+    if isinstance(call.func, ast.Attribute):
+        return call.func.attr
+    return None
+
+
+def _file_reference(call: ast.Call, cell_number: int) -> NotebookFileReference | None:
+    function_name = _called_function_name(call)
+    if function_name in _READ_FUNCTIONS:
+        operation = "lecture"
+    elif function_name in _WRITE_FUNCTIONS:
+        operation = "écriture"
+    elif function_name in _CHECK_FUNCTIONS:
+        operation = "vérification"
+    elif function_name == "open":
+        mode = next(
+            (keyword.value for keyword in call.keywords if keyword.arg == "mode"),
+            call.args[1] if len(call.args) > 1 else None,
+        )
+        if isinstance(mode, ast.Constant) and isinstance(mode.value, str):
+            operation = (
+                "écriture" if any(flag in mode.value for flag in ("w", "a", "x")) else "lecture"
+            )
+        else:
+            operation = "accès"
+    elif function_name == "load" and isinstance(call.func, ast.Attribute):
+        owner = ast.unparse(call.func.value).split(".", maxsplit=1)[0]
+        if owner not in {"joblib", "pickle", "torch"}:
+            return None
+        operation = "lecture"
+    else:
+        return None
+
+    if isinstance(call.func, ast.Attribute) and function_name in {
+        "read_text",
+        "read_bytes",
+        "write_text",
+        "write_bytes",
+        "is_file",
+        "is_dir",
+        "open",
+    }:
+        path_node = call.func.value
+    elif call.args:
+        path_node = call.args[0]
+    else:
+        path_node = next(
+            (
+                keyword.value
+                for keyword in call.keywords
+                if keyword.arg in _PATH_ARGUMENT_NAMES
+            ),
+            None,
+        )
+
+    if path_node is None:
+        return None
+
+    return NotebookFileReference(
+        expression=ast.unparse(path_node),
+        operation=operation,
+        cell_number=cell_number,
+    )
 
 
 def inspect_notebook(path: str | Path) -> NotebookSummary:
@@ -47,6 +163,9 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
 
     counts = {"code": 0, "markdown": 0, "raw": 0}
     code_cells_with_outputs = 0
+    imported_modules: set[str] = set()
+    file_references: set[NotebookFileReference] = set()
+    unanalyzed_code_cells = 0
     for index, cell in enumerate(cells):
         if not isinstance(cell, dict):
             raise NotebookFormatError(f"La cellule {index} doit être un objet JSON.")
@@ -67,9 +186,28 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
         if cell_type == "code":
             outputs = cell.get("outputs", [])
             if not isinstance(outputs, list):
-                raise NotebookFormatError(f"Les sorties de la cellule {index} doivent être une liste.")
+                raise NotebookFormatError(
+                    f"Les sorties de la cellule {index} doivent être une liste."
+                )
             if outputs:
                 code_cells_with_outputs += 1
+            source_text = source if isinstance(source, str) else "".join(source)
+            try:
+                syntax_tree = ast.parse(source_text)
+            except SyntaxError:
+                unanalyzed_code_cells += 1
+                continue
+
+            cell_number = index + 1
+            for node in ast.walk(syntax_tree):
+                if isinstance(node, ast.Import):
+                    imported_modules.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    imported_modules.add("." * node.level + (node.module or ""))
+                elif isinstance(node, ast.Call):
+                    reference = _file_reference(node, cell_number)
+                    if reference is not None:
+                        file_references.add(reference)
 
     return NotebookSummary(
         path=notebook_path,
@@ -78,4 +216,12 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
         markdown_cells=counts["markdown"],
         raw_cells=counts["raw"],
         code_cells_with_outputs=code_cells_with_outputs,
+        imported_modules=tuple(sorted(imported_modules)),
+        file_references=tuple(
+            sorted(
+                file_references,
+                key=lambda item: (item.cell_number, item.operation, item.expression),
+            )
+        ),
+        unanalyzed_code_cells=unanalyzed_code_cells,
     )
