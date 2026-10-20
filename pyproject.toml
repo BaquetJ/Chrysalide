@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "chrysalide"
 version = "0.1.0"
-description = "Aide à l'industrialisation de scripts et notebooks avec des LLM."
+description = "Rendre les scripts Python et notebooks plus fiables et faciles à transmettre."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
