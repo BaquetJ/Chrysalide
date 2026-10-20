@@ -12,6 +12,7 @@ from chrysalide.notebook import NotebookFormatError, NotebookSummary, inspect_no
 def _format_summary(summary: NotebookSummary) -> str:
     lines = [
         f"Notebook : {summary.path}",
+        f"Dossier de référence : {summary.project_dir}",
         f"Cellules : {summary.total_cells}",
         (
             f"  Code : {summary.code_cells} | "
@@ -40,7 +41,7 @@ def _format_summary(summary: NotebookSummary) -> str:
             f"(syntaxe non Python standard) : {summary.unanalyzed_code_cells}"
         )
     lines.append(
-        "La présence des chemins relatifs est vérifiée depuis le dossier du notebook ; "
+        "La présence des chemins relatifs est vérifiée depuis ce dossier de référence ; "
         "le dossier d'exécution peut être différent."
     )
     lines.append(
@@ -55,12 +56,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     inspect_parser = subparsers.add_parser("inspect", help="Résumer un notebook sans l'exécuter.")
     inspect_parser.add_argument("notebook", type=Path, help="Chemin vers le fichier .ipynb.")
+    inspect_parser.add_argument(
+        "--project-dir",
+        type=Path,
+        help=(
+            "Dossier de référence pour les fichiers et modules locaux "
+            "(défaut : dossier du notebook)."
+        ),
+    )
     arguments = parser.parse_args(argv)
 
     try:
-        summary = inspect_notebook(arguments.notebook)
-    except FileNotFoundError:
-        parser.error(f"Fichier introuvable : {arguments.notebook}")
+        summary = inspect_notebook(arguments.notebook, project_dir=arguments.project_dir)
+    except OSError as error:
+        parser.error(f"Impossible d'accéder au notebook ou au dossier du projet : {error}")
     except NotebookFormatError as error:
         parser.error(str(error))
 

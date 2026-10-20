@@ -1,8 +1,12 @@
+import io
 import json
+import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
+from chrysalide.cli import main
 from chrysalide.notebook import NotebookFormatError, inspect_notebook
 
 
@@ -161,6 +165,111 @@ class InspectNotebookTests(unittest.TestCase):
             summary.file_references[0].availability,
             "chemin dynamique, non vérifié",
         )
+
+    def test_project_directory_overrides_notebook_context_without_execution(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [{
+                "cell_type": "code",
+                "source": (
+                    "import local_module\n"
+                    "from local_package.tools import run\n"
+                    "import pandas as pd\n"
+                    "pd.read_csv('data.csv')\n"
+                    "raise RuntimeError('must not execute')\n"
+                ),
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            notebooks = root / "notebooks"
+            notebooks.mkdir()
+            path = self.write_notebook(str(notebooks), notebook)
+            original = path.read_bytes()
+            (root / "data.csv").write_text("text\n", encoding="utf-8")
+            (root / "local_module.py").write_text(
+                "raise RuntimeError('must not import')", encoding="utf-8"
+            )
+            (root / "local_package").mkdir()
+            cwd = Path.cwd()
+
+            default = inspect_notebook(path)
+            summary = inspect_notebook(path, project_dir=root)
+
+            self.assertEqual(default.project_dir, notebooks.resolve())
+            self.assertEqual(default.project_modules, ())
+            self.assertEqual(
+                default.file_references[0].availability, "absent à l'emplacement vérifié"
+            )
+            self.assertEqual(summary.project_dir, root.resolve())
+            self.assertEqual(
+                summary.project_modules, ("local_module", "local_package.tools")
+            )
+            self.assertEqual(summary.other_modules, ("pandas",))
+            self.assertEqual(
+                summary.file_references[0].availability, "présent à l'emplacement vérifié"
+            )
+            self.assertEqual(Path.cwd(), cwd)
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_project_context_does_not_change_absolute_file_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_path = root / "data.csv"
+            data_path.write_text("text\n", encoding="utf-8")
+            project = root / "project"
+            project.mkdir()
+            path = self.write_notebook(directory, {
+                "nbformat": 4,
+                "cells": [{"cell_type": "code", "source": f"open({str(data_path)!r})"}],
+            })
+            summary = inspect_notebook(path, project_dir=project)
+
+        self.assertEqual(
+            summary.file_references[0].availability, "présent à l'emplacement vérifié"
+        )
+
+    def test_relative_project_directory_is_resolved_from_current_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            notebooks = root / "notebooks"
+            notebooks.mkdir()
+            path = self.write_notebook(str(notebooks), {"nbformat": 4, "cells": []})
+            relative_directory = os.path.relpath(root, Path.cwd())
+            summary = inspect_notebook(path, project_dir=relative_directory)
+
+        self.assertEqual(summary.project_dir, root.resolve())
+
+    def test_rejects_missing_or_non_directory_project_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = self.write_notebook(directory, {"nbformat": 4, "cells": []})
+            with self.assertRaises(FileNotFoundError):
+                inspect_notebook(path, project_dir=root / "missing")
+            with self.assertRaises(NotADirectoryError):
+                inspect_notebook(path, project_dir=path)
+            self.assertFalse((root / "missing").exists())
+
+    def test_cli_passes_project_directory_and_displays_effective_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            notebooks = root / "notebooks"
+            notebooks.mkdir()
+            path = self.write_notebook(str(notebooks), {"nbformat": 4, "cells": []})
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = main(["inspect", str(path), "--project-dir", str(root)])
+            self.assertEqual(exit_code, 0)
+            self.assertIn(f"Dossier de référence : {root.resolve()}", output.getvalue())
+
+    def test_cli_reports_missing_project_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_notebook(directory, {"nbformat": 4, "cells": []})
+            error_output = io.StringIO()
+            with redirect_stderr(error_output), self.assertRaises(SystemExit) as error:
+                main(["inspect", str(path), "--project-dir", str(Path(directory) / "missing")])
+            self.assertEqual(error.exception.code, 2)
+            self.assertIn("Impossible d'accéder", error_output.getvalue())
 
     def test_rejects_invalid_json_with_a_clear_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

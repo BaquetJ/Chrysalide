@@ -26,11 +26,23 @@ Après l'installation, lancer cette commande depuis le dossier du projet :
 python -m chrysalide inspect chemin\vers\notebook.ipynb
 ```
 
+Si le notebook est dans un sous-dossier ou séparé de ses fichiers, indiquer le
+dossier depuis lequel son code est habituellement exécuté :
+
+```powershell
+python -m chrysalide inspect mon-projet\notebooks\analyse.ipynb --project-dir mon-projet
+```
+
+Le chemin du notebook et celui du projet sont relatifs au dossier du terminal.
+Sans `--project-dir`, le dossier du notebook reste la référence. Le dossier choisi
+doit exister ; Chrysalide ne le crée pas et ne change pas le dossier du terminal.
+
 Cette commande résume les types de cellules, les modules importés et les
 références à des fichiers détectables dans le code, en plus des sorties
 enregistrées. Les chemins construits à partir de variables sont présentés comme
 des expressions de code ; les chemins littéraux ou construits simplement sont
-vérifiés depuis le dossier du notebook. Cette présence est indicative, car le
+vérifiés depuis le dossier de référence affiché. Ce dossier sert aussi à repérer
+les modules locaux à sa racine. Cette présence est indicative, car le
 dossier d'exécution peut être différent. Les imports sont séparés entre
 bibliothèque standard, modules du projet repérés et autres imports à vérifier.
 Le nom d'un module ne permet pas toujours de déduire le nom du paquet à installer ;

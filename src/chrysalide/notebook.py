@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,6 +66,7 @@ class NotebookSummary:
     """Structural facts about a notebook, collected without executing it."""
 
     path: Path
+    project_dir: Path
     total_cells: int
     code_cells: int
     markdown_cells: int
@@ -223,8 +225,10 @@ def _file_reference(
     )
 
 
-def inspect_notebook(path: str | Path) -> NotebookSummary:
-    """Read a notebook and return a structural summary without changing it."""
+def inspect_notebook(
+    path: str | Path, *, project_dir: str | Path | None = None
+) -> NotebookSummary:
+    """Inspect without execution, using project_dir or the notebook's parent as context."""
     notebook_path = Path(path)
     try:
         notebook: Any = json.loads(notebook_path.read_text(encoding="utf-8"))
@@ -234,6 +238,14 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
         ) from error
     except UnicodeDecodeError as error:
         raise NotebookFormatError("Le fichier doit être encodé en UTF-8.") from error
+
+    context_directory = (
+        Path(project_dir) if project_dir is not None else notebook_path.parent
+    ).resolve()
+    if not stat.S_ISDIR(context_directory.stat().st_mode):
+        raise NotADirectoryError(
+            f"Le dossier du projet n'est pas un répertoire : {context_directory}"
+        )
 
     if not isinstance(notebook, dict):
         raise NotebookFormatError("Le contenu du fichier doit être un objet JSON.")
@@ -296,7 +308,7 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
                             node,
                             cell_number,
                             path_aliases,
-                            notebook_path.parent,
+                            context_directory,
                         )
                         if reference is not None:
                             file_references.add(reference)
@@ -320,11 +332,12 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
 
     standard_modules, project_modules, other_modules = _import_groups(
         imported_modules,
-        notebook_path.parent,
+        context_directory,
     )
 
     return NotebookSummary(
         path=notebook_path,
+        project_dir=context_directory,
         total_cells=len(cells),
         code_cells=counts["code"],
         markdown_cells=counts["markdown"],
