@@ -18,6 +18,17 @@ examine et valide chaque proposition.
 3. L'utilisateur choisit les changements à appliquer.
 4. Des vérifications aident à confirmer que le code fonctionne toujours.
 
+## Inspecter un notebook
+
+Après l'installation, lancer cette commande depuis le dossier du projet :
+
+```powershell
+python -m chrysalide inspect chemin\vers\notebook.ipynb
+```
+
+Cette première commande résume les types de cellules et signale les sorties
+enregistrées. Elle ne lance pas le code du notebook et ne modifie pas le fichier.
+
 ## Développement
 
 Python 3.10 ou supérieur est nécessaire pour développer Chrysalide.
