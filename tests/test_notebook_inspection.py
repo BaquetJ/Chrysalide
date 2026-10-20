@@ -87,6 +87,81 @@ class InspectNotebookTests(unittest.TestCase):
         self.assertEqual(summary.unanalyzed_code_cells, 1)
         self.assertEqual(summary.imported_modules, ("json",))
 
+    def test_classifies_imports_and_checks_literal_paths_next_to_notebook(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "source": [
+                        "import json\n",
+                        "import pandas as pd\n",
+                        "from local_package.tools import run\n",
+                        "from pathlib import Path\n",
+                        "DATA_DIR = Path('data')\n",
+                        "df = pd.read_csv(DATA_DIR / 'train.csv')\n",
+                        "df.to_csv('result.csv')\n",
+                        "pd.read_csv(get_data_path())\n",
+                    ],
+                    "outputs": [],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "local_package").mkdir()
+            (root / "data").mkdir()
+            (root / "data" / "train.csv").write_text("text\n", encoding="utf-8")
+            summary = inspect_notebook(self.write_notebook(directory, notebook))
+
+        self.assertEqual(summary.standard_modules, ("json", "pathlib"))
+        self.assertEqual(summary.project_modules, ("local_package.tools",))
+        self.assertEqual(summary.other_modules, ("pandas",))
+        references = {
+            reference.expression: reference.availability
+            for reference in summary.file_references
+        }
+        self.assertEqual(
+            references["DATA_DIR / 'train.csv'"],
+            "présent à l'emplacement vérifié",
+        )
+        self.assertEqual(
+            references["'result.csv'"],
+            "absent à l'emplacement vérifié",
+        )
+        self.assertEqual(
+            references["get_data_path()"],
+            "chemin dynamique, non vérifié",
+        )
+
+    def test_does_not_reuse_a_path_alias_after_dynamic_reassignment(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "source": [
+                        "from pathlib import Path\n",
+                        "DATA_DIR = Path('data')\n",
+                        "DATA_DIR = find_data_dir()\n",
+                        "import pandas as pd\n",
+                        "pd.read_csv(DATA_DIR / 'train.csv')\n",
+                    ],
+                    "outputs": [],
+                }
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "data").mkdir()
+            summary = inspect_notebook(self.write_notebook(directory, notebook))
+
+        self.assertEqual(
+            summary.file_references[0].availability,
+            "chemin dynamique, non vérifié",
+        )
+
     def test_rejects_invalid_json_with_a_clear_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "invalid.ipynb"

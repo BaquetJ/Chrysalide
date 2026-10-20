@@ -19,12 +19,16 @@ def _format_summary(summary: NotebookSummary) -> str:
         ),
         f"Cellules de code avec des sorties enregistrées : {summary.code_cells_with_outputs}",
         f"Modules importés : {', '.join(summary.imported_modules) or 'aucun détecté'}",
+        "Bilan des prérequis (déduit du code, à confirmer) :",
+        f"  Bibliothèque standard : {', '.join(summary.standard_modules) or 'aucune détectée'}",
+        f"  Modules du projet repérés : {', '.join(summary.project_modules) or 'aucun détecté'}",
+        f"  Autres imports à vérifier : {', '.join(summary.other_modules) or 'aucun détecté'}",
         "Fichiers référencés :",
     ]
     if summary.file_references:
         lines.extend(
             f"  - {reference.operation} : {reference.expression} "
-            f"(cellule {reference.cell_number})"
+            f"(cellule {reference.cell_number}, {reference.availability})"
             for reference in summary.file_references
         )
     else:
@@ -35,6 +39,13 @@ def _format_summary(summary: NotebookSummary) -> str:
             "Cellules de code non analysées "
             f"(syntaxe non Python standard) : {summary.unanalyzed_code_cells}"
         )
+    lines.append(
+        "La présence des chemins relatifs est vérifiée depuis le dossier du notebook ; "
+        "le dossier d'exécution peut être différent."
+    )
+    lines.append(
+        "Les imports sont déduits du code ; aucun paquet n'est installé ni généré automatiquement."
+    )
     lines.append("Le notebook a été lu sans exécuter ni modifier ses cellules.")
     return "\n".join(lines)
 

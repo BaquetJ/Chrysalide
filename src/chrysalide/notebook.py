@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,7 @@ class NotebookFileReference:
     expression: str
     operation: str
     cell_number: int
+    availability: str
 
 
 @dataclass(frozen=True)
@@ -69,8 +71,80 @@ class NotebookSummary:
     raw_cells: int
     code_cells_with_outputs: int
     imported_modules: tuple[str, ...]
+    standard_modules: tuple[str, ...]
+    project_modules: tuple[str, ...]
+    other_modules: tuple[str, ...]
     file_references: tuple[NotebookFileReference, ...]
     unanalyzed_code_cells: int
+
+
+def _static_path_value(node: ast.AST, aliases: dict[str, str]) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return aliases.get(node.id)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        if node.func.id == "Path" and len(node.args) == 1:
+            return _static_path_value(node.args[0], aliases)
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        if ast.unparse(node.func) == "pathlib.Path" and len(node.args) == 1:
+            return _static_path_value(node.args[0], aliases)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        left = _static_path_value(node.left, aliases)
+        right = _static_path_value(node.right, aliases)
+        if left is not None and right is not None:
+            return str(Path(left) / right)
+    if isinstance(node, ast.Call) and ast.unparse(node.func) in {
+        "os.path.join",
+        "ntpath.join",
+        "posixpath.join",
+    }:
+        parts = [_static_path_value(argument, aliases) for argument in node.args]
+        if parts and all(part is not None for part in parts):
+            return str(Path(parts[0]).joinpath(*parts[1:]))
+    return None
+
+
+def _file_availability(path_expression: str | None, notebook_directory: Path) -> str:
+    if path_expression is None:
+        return "chemin dynamique, non vérifié"
+
+    candidate = Path(path_expression)
+    if not candidate.is_absolute():
+        candidate = notebook_directory / candidate
+
+    try:
+        candidate.stat()
+    except FileNotFoundError:
+        return "absent à l'emplacement vérifié"
+    except OSError:
+        return "impossible à vérifier"
+    return "présent à l'emplacement vérifié"
+
+
+def _import_groups(
+    imported_modules: set[str], notebook_directory: Path
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    standard_modules = set(sys.stdlib_module_names)
+    standard: set[str] = set()
+    project: set[str] = set()
+    other: set[str] = set()
+
+    for module in imported_modules:
+        root_module = module.lstrip(".").split(".", maxsplit=1)[0]
+        if module.startswith("."):
+            project.add(module)
+        elif root_module in standard_modules:
+            standard.add(module)
+        elif (
+            (notebook_directory / root_module).is_dir()
+            or (notebook_directory / f"{root_module}.py").is_file()
+        ):
+            project.add(module)
+        else:
+            other.add(module)
+
+    return tuple(sorted(standard)), tuple(sorted(project)), tuple(sorted(other))
 
 
 def _called_function_name(call: ast.Call) -> str | None:
@@ -81,7 +155,12 @@ def _called_function_name(call: ast.Call) -> str | None:
     return None
 
 
-def _file_reference(call: ast.Call, cell_number: int) -> NotebookFileReference | None:
+def _file_reference(
+    call: ast.Call,
+    cell_number: int,
+    path_aliases: dict[str, str],
+    notebook_directory: Path,
+) -> NotebookFileReference | None:
     function_name = _called_function_name(call)
     if function_name in _READ_FUNCTIONS:
         operation = "lecture"
@@ -137,6 +216,10 @@ def _file_reference(call: ast.Call, cell_number: int) -> NotebookFileReference |
         expression=ast.unparse(path_node),
         operation=operation,
         cell_number=cell_number,
+        availability=_file_availability(
+            _static_path_value(path_node, path_aliases),
+            notebook_directory,
+        ),
     )
 
 
@@ -166,6 +249,7 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
     imported_modules: set[str] = set()
     file_references: set[NotebookFileReference] = set()
     unanalyzed_code_cells = 0
+    path_aliases: dict[str, str] = {}
     for index, cell in enumerate(cells):
         if not isinstance(cell, dict):
             raise NotebookFormatError(f"La cellule {index} doit être un objet JSON.")
@@ -204,10 +288,40 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
                     imported_modules.update(alias.name for alias in node.names)
                 elif isinstance(node, ast.ImportFrom):
                     imported_modules.add("." * node.level + (node.module or ""))
-                elif isinstance(node, ast.Call):
-                    reference = _file_reference(node, cell_number)
-                    if reference is not None:
-                        file_references.add(reference)
+
+            for statement in syntax_tree.body:
+                for node in ast.walk(statement):
+                    if isinstance(node, ast.Call):
+                        reference = _file_reference(
+                            node,
+                            cell_number,
+                            path_aliases,
+                            notebook_path.parent,
+                        )
+                        if reference is not None:
+                            file_references.add(reference)
+
+                if isinstance(statement, ast.Assign):
+                    value = _static_path_value(statement.value, path_aliases)
+                    for target in statement.targets:
+                        if isinstance(target, ast.Name):
+                            if value is None:
+                                path_aliases.pop(target.id, None)
+                            else:
+                                path_aliases[target.id] = value
+                elif isinstance(statement, ast.AnnAssign) and isinstance(
+                    statement.target, ast.Name
+                ):
+                    value = _static_path_value(statement.value, path_aliases)
+                    if value is None:
+                        path_aliases.pop(statement.target.id, None)
+                    else:
+                        path_aliases[statement.target.id] = value
+
+    standard_modules, project_modules, other_modules = _import_groups(
+        imported_modules,
+        notebook_path.parent,
+    )
 
     return NotebookSummary(
         path=notebook_path,
@@ -217,10 +331,18 @@ def inspect_notebook(path: str | Path) -> NotebookSummary:
         raw_cells=counts["raw"],
         code_cells_with_outputs=code_cells_with_outputs,
         imported_modules=tuple(sorted(imported_modules)),
+        standard_modules=standard_modules,
+        project_modules=project_modules,
+        other_modules=other_modules,
         file_references=tuple(
             sorted(
                 file_references,
-                key=lambda item: (item.cell_number, item.operation, item.expression),
+                key=lambda item: (
+                    item.cell_number,
+                    item.operation,
+                    item.expression,
+                    item.availability,
+                ),
             )
         ),
         unanalyzed_code_cells=unanalyzed_code_cells,

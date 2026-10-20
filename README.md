@@ -29,9 +29,16 @@ python -m chrysalide inspect chemin\vers\notebook.ipynb
 Cette commande résume les types de cellules, les modules importés et les
 références à des fichiers détectables dans le code, en plus des sorties
 enregistrées. Les chemins construits à partir de variables sont présentés comme
-des expressions de code, sans tenter de les résoudre. Les cellules qui utilisent
-une syntaxe non Python standard sont signalées lorsqu'elles ne peuvent pas être
-analysées. La commande ne lance pas le code du notebook et ne modifie pas le fichier.
+des expressions de code ; les chemins littéraux ou construits simplement sont
+vérifiés depuis le dossier du notebook. Cette présence est indicative, car le
+dossier d'exécution peut être différent. Les imports sont séparés entre
+bibliothèque standard, modules du projet repérés et autres imports à vérifier.
+Le nom d'un module ne permet pas toujours de déduire le nom du paquet à installer ;
+Chrysalide n'installe et ne génère aucune dépendance automatiquement.
+
+Les cellules qui utilisent une syntaxe non Python standard sont signalées
+lorsqu'elles ne peuvent pas être analysées. La commande ne lance pas le code du
+notebook et ne modifie pas le fichier.
 
 ## Développement
 
