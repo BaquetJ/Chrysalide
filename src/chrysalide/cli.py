@@ -24,22 +24,49 @@ def _format_summary(summary: NotebookSummary) -> str:
         f"  Bibliothèque standard : {', '.join(summary.standard_modules) or 'aucune détectée'}",
         f"  Modules du projet repérés : {', '.join(summary.project_modules) or 'aucun détecté'}",
         f"  Autres imports à vérifier : {', '.join(summary.other_modules) or 'aucun détecté'}",
-        "Fichiers référencés :",
     ]
-    if summary.file_references:
-        lines.extend(
-            f"  - {reference.operation} : {reference.expression} "
-            f"(cellule {reference.cell_number}, {reference.availability})"
-            for reference in summary.file_references
-        )
-    else:
-        lines.append("  Aucun fichier détecté.")
+
+    inputs = [
+        reference
+        for reference in summary.file_references
+        if reference.operation == "lecture"
+        and reference.availability != "chemin dynamique, non vérifié"
+    ]
+    outputs = [
+        reference
+        for reference in summary.file_references
+        if reference.operation == "écriture"
+        and reference.availability != "chemin dynamique, non vérifié"
+    ]
+    to_confirm = [
+        reference
+        for reference in summary.file_references
+        if reference not in inputs and reference not in outputs
+    ]
+
+    for title, references in (
+        ("Fichiers lus (entrées probables)", inputs),
+        ("Fichiers écrits (sorties probables)", outputs),
+        ("Chemins ou accès à confirmer", to_confirm),
+    ):
+        lines.append(f"{title} :")
+        if references:
+            lines.extend(
+                f"  - {reference.expression} "
+                f"(cellule {reference.cell_number}, {reference.availability})"
+                for reference in references
+            )
+        else:
+            lines.append("  Aucun détecté.")
 
     if summary.unanalyzed_code_cells:
         lines.append(
             "Cellules de code non analysées "
             f"(syntaxe non Python standard) : {summary.unanalyzed_code_cells}"
         )
+    lines.append(
+        "Le classement est déduit des appels repérés : vérifie-le selon l'usage réel du code."
+    )
     lines.append(
         "La présence des chemins relatifs est vérifiée depuis ce dossier de référence ; "
         "le dossier d'exécution peut être différent."

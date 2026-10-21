@@ -262,6 +262,55 @@ class InspectNotebookTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertIn(f"Dossier de référence : {root.resolve()}", output.getvalue())
 
+    def test_cli_groups_input_output_and_unconfirmed_paths(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [{
+                "cell_type": "code",
+                "source": (
+                    "import pandas as pd\n"
+                    "from pathlib import Path\n"
+                    "DATA_DIR = Path('data')\n"
+                    "pd.read_csv(DATA_DIR / 'train.csv')\n"
+                    "pd.read_csv(get_latest_file())\n"
+                    "pd.DataFrame().to_csv('reports/result.csv')\n"
+                    "Path('config.json').is_file()\n"
+                ),
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data").mkdir()
+            path = self.write_notebook(directory, notebook)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                main(["inspect", str(path), "--project-dir", str(root)])
+
+        report = output.getvalue()
+        self.assertIn("Fichiers lus (entrées probables) :", report)
+        self.assertIn("DATA_DIR / 'train.csv'", report)
+        self.assertIn("Fichiers écrits (sorties probables) :", report)
+        self.assertIn("'reports/result.csv'", report)
+        self.assertIn("Chemins ou accès à confirmer :", report)
+        self.assertIn("get_latest_file()", report)
+        self.assertIn("'config.json'", report)
+
+    def test_cli_explains_when_no_file_references_are_found(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [{"cell_type": "code", "source": "print('hello')"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_notebook(directory, notebook)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                main(["inspect", str(path)])
+
+        report = output.getvalue()
+        self.assertIn("Fichiers lus (entrées probables) :\n  Aucun détecté.", report)
+        self.assertIn("Fichiers écrits (sorties probables) :\n  Aucun détecté.", report)
+        self.assertIn("Chemins ou accès à confirmer :\n  Aucun détecté.", report)
+
     def test_cli_reports_missing_project_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = self.write_notebook(directory, {"nbformat": 4, "cells": []})

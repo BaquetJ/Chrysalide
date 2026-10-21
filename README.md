@@ -39,11 +39,14 @@ doit exister ; Chrysalide ne le crée pas et ne change pas le dossier du termina
 
 Cette commande résume les types de cellules, les modules importés et les
 références à des fichiers détectables dans le code, en plus des sorties
-enregistrées. Les chemins construits à partir de variables sont présentés comme
-des expressions de code ; les chemins littéraux ou construits simplement sont
-vérifiés depuis le dossier de référence affiché. Ce dossier sert aussi à repérer
-les modules locaux à sa racine. Cette présence est indicative, car le
-dossier d'exécution peut être différent. Les imports sont séparés entre
+enregistrées. Les fichiers sont regroupés en entrées probables, sorties probables
+et chemins ou accès à confirmer. Le classement est une déduction statique des
+appels repérés : il ne remplace pas la validation de l'utilisateur. Les chemins
+construits à partir de variables sont présentés comme des expressions de code ;
+les chemins littéraux ou construits simplement sont vérifiés depuis le dossier
+de référence affiché. Ce dossier sert aussi à repérer les modules locaux à sa
+racine. Cette présence est indicative, car le dossier d'exécution peut être
+différent. Les imports sont séparés entre
 bibliothèque standard, modules du projet repérés et autres imports à vérifier.
 Le nom d'un module ne permet pas toujours de déduire le nom du paquet à installer ;
 Chrysalide n'installe et ne génère aucune dépendance automatiquement.
