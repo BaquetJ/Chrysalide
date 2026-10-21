@@ -50,6 +50,8 @@ différent. Les imports sont séparés entre
 bibliothèque standard, modules du projet repérés et autres imports à vérifier.
 Le nom d'un module ne permet pas toujours de déduire le nom du paquet à installer ;
 Chrysalide n'installe et ne génère aucune dépendance automatiquement.
+Le rapport termine par une checklist de reprise fondée sur les fichiers absents,
+les chemins dynamiques, les imports à vérifier et les cellules non analysées.
 
 Les cellules qui utilisent une syntaxe non Python standard sont signalées
 lorsqu'elles ne peuvent pas être analysées. La commande ne lance pas le code du

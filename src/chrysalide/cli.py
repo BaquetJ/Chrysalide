@@ -59,11 +59,64 @@ def _format_summary(summary: NotebookSummary) -> str:
         else:
             lines.append("  Aucun détecté.")
 
+    checklist: list[str] = []
+    missing_inputs = [
+        reference
+        for reference in inputs
+        if reference.availability == "absent à l'emplacement vérifié"
+    ]
+    if missing_inputs:
+        checklist.append(
+            "fournir ou corriger les fichiers lus absents : "
+            + ", ".join(reference.expression for reference in missing_inputs)
+        )
+
+    dynamic_references = [
+        reference
+        for reference in summary.file_references
+        if reference.availability == "chemin dynamique, non vérifié"
+    ]
+    if dynamic_references:
+        checklist.append(
+            "confirmer les chemins calculés par le code : "
+            + ", ".join(reference.expression for reference in dynamic_references)
+        )
+
+    if summary.other_modules:
+        checklist.append(
+            "vérifier que les imports suivants sont disponibles dans l'environnement : "
+            + ", ".join(summary.other_modules)
+        )
+
+    uncertain_references = [
+        reference
+        for reference in to_confirm
+        if reference.availability != "chemin dynamique, non vérifié"
+    ]
+    if uncertain_references:
+        checklist.append(
+            "confirmer le rôle des chemins vérifiés ou des accès non classés : "
+            + ", ".join(reference.expression for reference in uncertain_references)
+        )
+
     if summary.unanalyzed_code_cells:
         lines.append(
             "Cellules de code non analysées "
             f"(syntaxe non Python standard) : {summary.unanalyzed_code_cells}"
         )
+        checklist.append(
+            "relire les cellules non analysées : leur contenu n'a pas été pris en compte"
+        )
+
+    lines.append("À vérifier avant de reprendre le notebook :")
+    if checklist:
+        lines.extend(f"  - {item}" for item in checklist)
+    else:
+        lines.append(
+            "  Aucun prérequis bloquant détecté automatiquement ; "
+            "confirmer le contexte d'exécution et les étapes métier."
+        )
+
     lines.append(
         "Le classement est déduit des appels repérés : vérifie-le selon l'usage réel du code."
     )

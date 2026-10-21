@@ -311,6 +311,57 @@ class InspectNotebookTests(unittest.TestCase):
         self.assertIn("Fichiers écrits (sorties probables) :\n  Aucun détecté.", report)
         self.assertIn("Chemins ou accès à confirmer :\n  Aucun détecté.", report)
 
+    def test_cli_builds_checklist_from_missing_inputs_and_uncertain_requirements(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "source": (
+                        "import pandas as pd\n"
+                        "import project_only_module\n"
+                        "pd.read_csv('data/input.csv')\n"
+                        "pd.read_csv(get_input_path())\n"
+                        "Path('model.pkl').is_file()\n"
+                    ),
+                },
+                {
+                    "cell_type": "code",
+                    "source": "%matplotlib inline\n",
+                },
+            ],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_notebook(directory, notebook)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                main(["inspect", str(path)])
+
+        report = output.getvalue()
+        self.assertIn("À vérifier avant de reprendre le notebook :", report)
+        self.assertIn("fournir ou corriger les fichiers lus absents", report)
+        self.assertIn("'data/input.csv'", report)
+        self.assertIn("confirmer les chemins calculés par le code", report)
+        self.assertIn("get_input_path()", report)
+        self.assertIn("vérifier que les imports suivants sont disponibles", report)
+        self.assertIn("pandas", report)
+        self.assertIn("relire les cellules non analysées", report)
+
+    def test_cli_has_a_reassuring_checklist_when_no_action_is_detected(self) -> None:
+        notebook = {
+            "nbformat": 4,
+            "cells": [{"cell_type": "code", "source": "import json\nprint('ok')"}],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.write_notebook(directory, notebook)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                main(["inspect", str(path)])
+
+        self.assertIn(
+            "Aucun prérequis bloquant détecté automatiquement", output.getvalue()
+        )
+
     def test_cli_reports_missing_project_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = self.write_notebook(directory, {"nbformat": 4, "cells": []})
